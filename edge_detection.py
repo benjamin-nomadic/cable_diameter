@@ -2,8 +2,11 @@ import sys
 import cv2
 import numpy as np
 
-MIN_SEPARATION = 40   # minimum rho gap (px) between the two selected lines
-BIN_HALF_WIDTH = 5    # pixels either side of a line to highlight in the overlay
+MIN_SEPARATION  = 40   # minimum rho gap (px) between the two selected lines
+BIN_HALF_WIDTH  = 3    # pixels either side of a Hough line to highlight in the overlay
+N_SAMPLES       = 500  # y-samples for diameter integration
+DRAG_RADIUS     = 20   # px radius for draggable handle hit-test and circle drawing
+HOMOGRAPHY_PATH = "data/homography.npz"
 
 
 # ── 1. Preprocessing ──────────────────────────────────────────────────────────
@@ -83,18 +86,20 @@ def find_best_lines(mask, min_votes):
 
 # ── 4. Visualisation ──────────────────────────────────────────────────────────
 
-def draw_line(img, rho, theta, colour, thickness=2):
-    """Draw a full-image Hough line (rho, theta) onto img."""
+def line_endpoints(line, h, w):
+    """Return two points on the line at y=0 and y=h-1 (x clipped to image bounds).
+    These are the furthest-apart points the line has inside the image."""
+    rho, theta = line
     cos_t, sin_t = np.cos(theta), np.sin(theta)
-    x0, y0 = cos_t * rho, sin_t * rho
-    scale = max(img.shape)
-    pt1 = (int(x0 + scale * (-sin_t)), int(y0 + scale * cos_t))
-    pt2 = (int(x0 - scale * (-sin_t)), int(y0 - scale * cos_t))
-    cv2.line(img, pt1, pt2, colour, thickness)
+    if abs(cos_t) < 1e-6:
+        return (int(rho), 0), (int(rho), h - 1)
+    x_top = int(np.clip(rho / cos_t, 0, w - 1))
+    x_bot = int(np.clip((rho - (h - 1) * sin_t) / cos_t, 0, w - 1))
+    return (x_top, 0), (x_bot, h - 1)
 
 
 def make_overlay(bgr, mask, line1, line2):
-    """Colour the mask pixels near each detected line and draw the line itself."""
+    """Colour the mask pixels near each detected line."""
     overlay = bgr.copy()
     ys, xs = np.where(mask)
     for line, colour in [(line1, (0, 220, 0)), (line2, (0, 60, 255))]:
@@ -103,11 +108,66 @@ def make_overlay(bgr, mask, line1, line2):
         rho, theta = line
         dists = np.abs(xs * np.cos(theta) + ys * np.sin(theta) - rho)
         overlay[ys[dists <= BIN_HALF_WIDTH], xs[dists <= BIN_HALF_WIDTH]] = colour
-        draw_line(overlay, rho, theta, colour)
     return overlay
 
 
-# ── 5. Main ───────────────────────────────────────────────────────────────────
+def draw_handles(bgr, handles):
+    """Draw the two edge lines and their draggable endpoint circles.
+
+    handles: [[top1, bot1], [top2, bot2]] where each point is a [x, y] list,
+             or None for a line that wasn't detected.
+    """
+    out = bgr.copy()
+    if handles is None:
+        return out
+    colours = [(0, 220, 0), (0, 60, 255)]
+    for i, pts in enumerate(handles):
+        if pts is None:
+            continue
+        colour = colours[i]
+        pt0 = (int(pts[0][0]), int(pts[0][1]))
+        pt1 = (int(pts[1][0]), int(pts[1][1]))
+        cv2.line(out, pt0, pt1, colour, 2)
+        for pt in (pt0, pt1):
+            cv2.circle(out, pt, DRAG_RADIUS, colour, 2)
+            cv2.circle(out, pt, DRAG_RADIUS, (255, 255, 255), 1)
+    return out
+
+
+# ── 5. Diameter ───────────────────────────────────────────────────────────────
+
+def compute_diameter_from_pts(handles, pixels_per_mm):
+    """Mean horizontal distance between two line segments, in mm.
+
+    handles: [[top0, bot0], [top1, bot1]] — each point is a [x, y] list.
+    Uses the shared y-range of the two segments so unequal spans don't inflate the result.
+    """
+    if handles is None or handles[0] is None or handles[1] is None:
+        return None
+
+    def interp_x(pts, y):
+        (xt, yt), (xb, yb) = pts
+        if yb == yt:
+            return float(xt)
+        return xt + (xb - xt) * (y - yt) / (yb - yt)
+
+    y0_min = min(handles[0][0][1], handles[0][1][1])
+    y0_max = max(handles[0][0][1], handles[0][1][1])
+    y1_min = min(handles[1][0][1], handles[1][1][1])
+    y1_max = max(handles[1][0][1], handles[1][1][1])
+
+    y_min = max(y0_min, y1_min)
+    y_max = min(y0_max, y1_max)
+    if y_min >= y_max:
+        return None
+
+    ys = np.linspace(y_min, y_max, N_SAMPLES)
+    x0 = np.array([interp_x(handles[0], y) for y in ys])
+    x1 = np.array([interp_x(handles[1], y) for y in ys])
+    return float(np.mean(np.abs(x0 - x1))) / pixels_per_mm
+
+
+# ── 6. Main ───────────────────────────────────────────────────────────────────
 
 def main():
     if len(sys.argv) < 2:
@@ -119,19 +179,66 @@ def main():
         print(f"Could not read image: {sys.argv[1]}")
         sys.exit(1)
 
-    # Preprocessing step that only needs to run once
+    try:
+        pixels_per_mm = float(np.load(HOMOGRAPHY_PATH)["pixels_per_mm"])
+        print(f"Loaded pixels_per_mm={pixels_per_mm} from {HOMOGRAPHY_PATH}")
+    except Exception:
+        pixels_per_mm = None
+        print(f"Warning: could not load {HOMOGRAPHY_PATH} — diameter will be shown in pixels")
+
     L_ch, a_ch, b_ch = to_lab_channels(img)
+    h, w = img.shape[:2]
 
     WIN_GRAD     = "Combined gradient"
     WIN_FILTERED = "Filtered gradient"
     WIN_LINES    = "Two best lines"
+    WIN_IDEAL    = "Idealised lines"
 
-    for win in (WIN_GRAD, WIN_FILTERED, WIN_LINES):
+    for win in (WIN_GRAD, WIN_FILTERED, WIN_LINES, WIN_IDEAL):
         cv2.namedWindow(win, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(win, 1280, 720)
 
+    # Shared mutable state for drag interaction
+    state = {"handles": None, "dragging": None}
+
+    def redraw(print_result=False):
+        ppm  = pixels_per_mm if pixels_per_mm else 1.0
+        unit = "mm" if pixels_per_mm else "px"
+        ideal = draw_handles(img, state["handles"])
+        diam = compute_diameter_from_pts(state["handles"], ppm)
+        if diam is not None:
+            label = f"Diameter: {diam:.2f} {unit}"
+            if print_result:
+                print(label)
+            cv2.putText(ideal, label, (15, 45), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 0), 4)
+            cv2.putText(ideal, label, (15, 45), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
+        cv2.imshow(WIN_IDEAL, ideal)
+
+    def on_mouse(event, x, y, _flags, _param):
+        if event == cv2.EVENT_LBUTTONDOWN:
+            if state["handles"] is None:
+                return
+            best_dist, best_key = float("inf"), None
+            for li, pts in enumerate(state["handles"]):
+                if pts is None:
+                    continue
+                for pi, pt in enumerate(pts):
+                    d = ((pt[0] - x) ** 2 + (pt[1] - y) ** 2) ** 0.5
+                    if d < best_dist:
+                        best_dist, best_key = d, (li, pi)
+            if best_dist <= DRAG_RADIUS * 2:
+                state["dragging"] = best_key
+        elif event == cv2.EVENT_MOUSEMOVE and state["dragging"] is not None:
+            li, pi = state["dragging"]
+            state["handles"][li][pi] = [x, y]
+            redraw(print_result=False)
+        elif event == cv2.EVENT_LBUTTONUP and state["dragging"] is not None:
+            state["dragging"] = None
+            redraw(print_result=True)
+
+    cv2.setMouseCallback(WIN_IDEAL, on_mouse)
+
     def update(_=None):
-        # Read all slider values
         w_L           = cv2.getTrackbarPos("L weight",     WIN_GRAD) / 100.0
         w_a           = cv2.getTrackbarPos("a weight",     WIN_GRAD) / 100.0
         w_b           = cv2.getTrackbarPos("b weight",     WIN_GRAD) / 100.0
@@ -158,22 +265,34 @@ def main():
         filtered[mask] = grad_display[mask]
         cv2.imshow(WIN_FILTERED, filtered)
 
-        min_votes = max(1, int(L_ch.shape[0] * min_line_pct / 100))
+        min_votes = max(1, int(h * min_line_pct / 100))
         line1, line2 = find_best_lines(mask, min_votes)
 
         # 4. Visualisation
         cv2.imshow(WIN_LINES, make_overlay(img, mask, line1, line2))
 
-    cv2.createTrackbar("L weight",    WIN_GRAD,     100, 100, update)
-    cv2.createTrackbar("a weight",    WIN_GRAD,      50, 100, update)
-    cv2.createTrackbar("b weight",    WIN_GRAD,      50, 100, update)
-    cv2.createTrackbar("Blur sigma",  WIN_GRAD,       2,  20, update)
-    cv2.createTrackbar("Sobel ksize", WIN_GRAD,       1,   3, update)  # 0=1,1=3,2=5,3=7
-    cv2.createTrackbar("Threshold %",   WIN_FILTERED, 10, 100, update)
-    cv2.createTrackbar("Min line span", WIN_FILTERED, 20, 100, update)
+        # Convert Hough lines to endpoint handles and reset drag state
+        def line_to_handle(line):
+            if line is None:
+                return None
+            pt_top, pt_bot = line_endpoints(line, h, w)
+            return [list(pt_top), list(pt_bot)]
+
+        state["handles"] = [line_to_handle(line1), line_to_handle(line2)]
+        state["dragging"] = None
+        redraw(print_result=True)
+
+    cv2.createTrackbar("L weight",      WIN_GRAD,     100, 100, update)
+    cv2.createTrackbar("a weight",      WIN_GRAD,      50, 100, update)
+    cv2.createTrackbar("b weight",      WIN_GRAD,      50, 100, update)
+    cv2.createTrackbar("Blur sigma",    WIN_GRAD,       2,  20, update)
+    cv2.createTrackbar("Sobel ksize",   WIN_GRAD,       1,   3, update)
+    cv2.createTrackbar("Threshold %",   WIN_FILTERED,  10, 100, update)
+    cv2.createTrackbar("Min line span", WIN_FILTERED,  20, 100, update)
     update()
 
-    print("Adjust sliders. Press any key to quit.")
+    print("Adjust sliders to auto-detect lines. Drag handles in 'Idealised lines' to fine-tune.")
+    print("Press any key to quit.")
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
