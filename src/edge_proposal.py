@@ -72,6 +72,35 @@ def _draw_lines(bgr, line1, line2, h, w):
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+# Defaults mirror the interactive sliders' starting positions in `propose`.
+_DEFAULT_WEIGHTS = (1.0, 0.5, 0.5)
+_DEFAULT_BLUR_SIGMA = 2
+_DEFAULT_SOBEL_KSIZE = 3
+_DEFAULT_THRESHOLD_PCT = 10
+_DEFAULT_MIN_LINE_SPAN_PCT = 20
+
+
+def propose_headless(image, weights=_DEFAULT_WEIGHTS, blur_sigma=_DEFAULT_BLUR_SIGMA,
+                      sobel_ksize=_DEFAULT_SOBEL_KSIZE, threshold_pct=_DEFAULT_THRESHOLD_PCT,
+                      min_line_span_pct=_DEFAULT_MIN_LINE_SPAN_PCT):
+    """Non-interactive edge detection — same algorithm as `propose`, fixed parameters.
+
+    Returns [[top0, bot0], [top1, bot1]], or None if fewer than two edges were found.
+    """
+    L_ch, a_ch, b_ch = _to_lab(image)
+    h, w = image.shape[:2]
+
+    blurred = _blur((L_ch, a_ch, b_ch), blur_sigma)
+    grads = _gradients(blurred, sobel_ksize)
+    combined = _combine(grads, weights)
+    mask = _threshold(combined, threshold_pct)
+
+    line1, line2 = _hough(mask, max(1, int(h * min_line_span_pct / 100)))
+    if line1 is None or line2 is None:
+        return None
+    return [_to_handle(line1, h, w), _to_handle(line2, h, w)]
+
+
 def propose(image):
     """Interactively detect two cable edges via LAB gradient + Hough lines.
 
