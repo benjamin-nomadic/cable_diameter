@@ -5,7 +5,7 @@ import glob
 
 # ── Configure these to match your printed checkerboard ──────────────────────
 CHECKERBOARD = (9, 6)   # inner corners (width, height) — NOT the number of squares
-SQUARE_SIZE_MM = 24.0   # measure one square on your printout with a ruler
+SQUARE_SIZE_MM = 16   # measure one square on your printout with a ruler
 # ────────────────────────────────────────────────────────────────────────────
 
 IMAGE_DIR = "calibration_images"
