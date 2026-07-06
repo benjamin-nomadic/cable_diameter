@@ -13,8 +13,8 @@ CALIBRATION_PATH = "data/calibration.npz"
 HOMOGRAPHY_PATH = "data/homography.npz"
 DISPLAY_SIZE = (3840, 2160)
 CROP_X = (0.4, 0.6)
-CROP_Y = (0.4, 0.8)
-HEIGHT_MM = None
+CROP_Y = (0.4, 0.75)
+HEIGHT_MM = 48
 
 app = FastAPI()
 
@@ -39,14 +39,35 @@ def _encode_png(image) -> str:
     return base64.b64encode(buf).decode("ascii")
 
 
+def _map_handles_to_undistorted(handles, crop_offset):
+    """Map handle points from cropped-ROI space back into the undistorted image's space."""
+    if handles is None:
+        return None
+    cx1, cy1 = crop_offset
+    H_inv = np.linalg.inv(_H)
+    points = np.array(
+        [[p[0] + cx1, p[1] + cy1] for line in handles for p in line], dtype=np.float32
+    ).reshape(-1, 1, 2)
+    mapped = cv2.perspectiveTransform(points, H_inv).reshape(-1, 2).tolist()
+    return [[mapped[0], mapped[1]], [mapped[2], mapped[3]]]
+
+
 @app.post("/propose")
 async def propose(file: UploadFile = File(...)):
     image = _decode_upload(await file.read())
-    roi = transform.apply(image, _K, _dist, _H, _bev_size, DISPLAY_SIZE, CROP_X, CROP_Y)
+    roi, undistorted, crop_offset = transform.apply_with_intermediates(
+        image, _K, _dist, _H, _bev_size, DISPLAY_SIZE, CROP_X, CROP_Y
+    )
     handles = edge_proposal.propose_headless(roi)
     return {
         "image_png_base64": _encode_png(roi),
         "handles": handles,
+        "undistorted_image_png_base64": _encode_png(undistorted),
+        "undistorted_handles": _map_handles_to_undistorted(handles, crop_offset),
+        # Let the frontend map points between the two views live, without a round-trip.
+        "homography": _H.tolist(),
+        "homography_inv": np.linalg.inv(_H).tolist(),
+        "crop_offset": list(crop_offset),
     }
 
 

@@ -9,8 +9,8 @@ CALIBRATION_PATH = "data/calibration.npz"
 OUTPUT_PATH = "data/homography.npz"
 
 # ── Measure your reference rectangle carefully with a ruler ──────────────────
-REF_WIDTH_MM = 112
-REF_HEIGHT_MM = 144
+REF_WIDTH_MM = 144
+REF_HEIGHT_MM = 112
 PIXELS_PER_MM = 5.0
 PADDING_MM = 150.0   # extra scene shown around the reference rectangle on every side
 # ─────────────────────────────────────────────────────────────────────────────

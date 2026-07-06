@@ -26,9 +26,23 @@ def apply(image, K, dist, H, bev_size, display_size, crop_x=(0.0, 1.0), crop_y=(
     crop_x, crop_y: (low_fraction, high_fraction) of bev_size to keep.
     Returns the cropped BEV image.
     """
+    roi, _undistorted, _crop_offset = apply_with_intermediates(
+        image, K, dist, H, bev_size, display_size, crop_x, crop_y
+    )
+    return roi
+
+
+def apply_with_intermediates(image, K, dist, H, bev_size, display_size, crop_x=(0.0, 1.0), crop_y=(0.0, 1.0)):
+    """Same as `apply`, but also returns the pre-warp undistorted image and the crop offset.
+
+    Returns (roi, undistorted, (crop_x_offset, crop_y_offset)).
+    A point in `roi` maps into `undistorted`'s coordinate space by adding the crop offset
+    back, then applying the inverse of H.
+    """
     undistorted = cv2.resize(cv2.undistort(image, K, dist), display_size)
     warped = cv2.warpPerspective(undistorted, H, bev_size)
 
     cx1, cx2 = int(bev_size[0] * crop_x[0]), int(bev_size[0] * crop_x[1])
     cy1, cy2 = int(bev_size[1] * crop_y[0]), int(bev_size[1] * crop_y[1])
-    return warped[cy1:cy2, cx1:cx2].copy()
+    roi = warped[cy1:cy2, cx1:cx2].copy()
+    return roi, undistorted, (cx1, cy1)

@@ -11,8 +11,8 @@ HOMOGRAPHY_PATH  = "data/homography.npz"
 DISPLAY_SIZE     = (3840, 2160)   # resolution the homography was computed in
 CAMERA_INDEX     = 4
 CROP_X           = (0.4, 0.6)    # horizontal slice of the BEV image to measure
-CROP_Y           = (0.4, 0.8)    # vertical slice of the BEV image to measure
-HEIGHT_MM        = None           # set to camera height above cable plane in mm to enable geometric correction
+CROP_Y           = (0.4, 0.75)    # vertical slice of the BEV image to measure
+HEIGHT_MM        = 48           # set to camera height above cable plane in mm to enable geometric correction
 
 
 def _capture_from_camera():
