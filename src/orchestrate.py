@@ -10,7 +10,7 @@ CALIBRATION_PATH = "data/calibration.npz"
 HOMOGRAPHY_PATH  = "data/homography.npz"
 DISPLAY_SIZE     = (3840, 2160)   # resolution the homography was computed in
 CAMERA_INDEX     = 4
-CROP_X           = (0.45, 0.55)    # horizontal slice of the BEV image to measure
+CROP_X           = (0.42, 0.58)    # horizontal slice of the BEV image to measure
 CROP_Y           = (0.4, 0.75)    # vertical slice of the BEV image to measure
 HEIGHT_MM        = 48           # set to camera height above cable plane in mm to enable geometric correction
 
@@ -65,7 +65,7 @@ def main():
     roi = transform.apply(image, K, dist, H, bev_size, DISPLAY_SIZE, CROP_X, CROP_Y)
 
     # ── 3. Propose edges ──────────────────────────────────────────────────────
-    handles = edge_proposal.propose(roi)
+    handles = edge_proposal.propose_headless(roi, pixels_per_mm)
     if handles is None:
         print("Cancelled during edge proposal.")
         return

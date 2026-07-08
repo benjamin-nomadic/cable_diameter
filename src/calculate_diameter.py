@@ -9,9 +9,12 @@ def calculate(handles, pixels_per_mm, height_mm=None):
     handles:      [[top0, bot0], [top1, bot1]] where each point is [x, y].
     pixels_per_mm: calibration scale factor.
     height_mm:    if provided, applies the geometric correction
-                      d_true = 2*(m²/h) + sqrt(m⁴/h² + m²)
-                  where m is the raw measured horizontal distance and h is the
-                  known physical height of the camera above the cable plane.
+                      d_true = (m² + m·sqrt(m² + 4h²)) / (2h)
+                  where m is the raw measured horizontal distance and h is the camera's
+                  height above the reference plane, which sits at the TOP of the cable
+                  (tangent to its highest point) — not underneath it. The correction
+                  accounts for the camera seeing tangent lines grazing the cable's round
+                  surface rather than its true edges on that plane.
                   If None, returns m directly (uncorrected).
 
     Returns diameter in mm, or None if the segments don't overlap vertically.
@@ -41,4 +44,4 @@ def calculate(handles, pixels_per_mm, height_mm=None):
         return m
 
     h = height_mm
-    return 2.0 * (m ** 2 / h) + np.sqrt(m ** 4 / h ** 2 + m ** 2)
+    return (m ** 2 + m * np.sqrt(m ** 2 + 4 * h ** 2)) / (2 * h)

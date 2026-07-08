@@ -8,27 +8,25 @@ DISPLAY_SIZE = (3840, 2160)       # must stay equal to CAMERA_RESOLUTION
 CALIBRATION_PATH = "data/calibration.npz"
 OUTPUT_PATH = "data/homography.npz"
 
-# ── Measure your reference rectangle carefully with a ruler ──────────────────
-REF_WIDTH_MM = 144
-REF_HEIGHT_MM = 112
-PIXELS_PER_MM = 5.0
-PADDING_MM = 150.0   # extra scene shown around the reference rectangle on every side
+# ── Measure your printed AprilTag carefully with a ruler ─────────────────────
+TAG_SIZE_MM = 96.0   # side length of the black square of your printed tag (not the white border)
+APRILTAG_FAMILY = cv2.aruco.DICT_APRILTAG_36h11
+PIXELS_PER_MM = 10.0
+PADDING_MM = 150.0   # extra scene shown around the tag on every side
 # ─────────────────────────────────────────────────────────────────────────────
 
 CORNER_LABELS = ["top-left", "top-right", "bottom-right", "bottom-left"]
 
 
-def draw_state(img, points):
+def draw_detection(img, corners):
     display = img.copy()
-    for i, pt in enumerate(points):
-        cv2.circle(display, pt, 8, (0, 255, 0), -1)
-        cv2.putText(display, CORNER_LABELS[i], (pt[0] + 12, pt[1] + 6),
+    pts = corners.astype(int)
+    cv2.polylines(display, [pts], True, (0, 255, 0), 2)
+    for label, pt in zip(CORNER_LABELS, pts):
+        cv2.circle(display, tuple(pt), 8, (0, 255, 0), -1)
+        cv2.putText(display, label, (pt[0] + 12, pt[1] + 6),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-    if len(points) == 4:
-        cv2.polylines(display, [np.array(points, np.int32)], True, (0, 255, 0), 2)
-        msg = "Press ENTER to confirm  |  r = reset"
-    else:
-        msg = f"Click the {CORNER_LABELS[len(points)]} corner of your reference rectangle"
+    msg = "Tag detected — press ENTER to confirm, any other key to retry"
     cv2.putText(display, msg, (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
     return display
 
@@ -64,54 +62,59 @@ def capture_frame(K, dist):
     return frame
 
 
-def select_corners(frame):
-    points = []
+def detect_tag_corners(frame):
+    """Detect a single AprilTag in the frame.
 
-    def on_mouse(event, x, y, flags, param):
-        if event == cv2.EVENT_LBUTTONDOWN and len(points) < 4:
-            points.append((x, y))
+    Returns its 4 corners as (top-left, top-right, bottom-right, bottom-left),
+    or None if zero tags were found. If multiple tags are visible, uses the first one.
+    """
+    aruco_dict = cv2.aruco.getPredefinedDictionary(APRILTAG_FAMILY)
+    detector_params = cv2.aruco.DetectorParameters()
+    # Corners are used to solve an exact 4-point homography, so any detection error goes
+    # straight into it unaveraged — sub-pixel refinement matters a lot more here than in
+    # typical ArUco use (e.g. pose estimation), where it's usually left off.
+    detector_params.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_APRILTAG
+    detector = cv2.aruco.ArucoDetector(aruco_dict, detector_params)
+    corners, ids, _ = detector.detectMarkers(frame)
 
-    cv2.namedWindow("Select corners", cv2.WINDOW_AUTOSIZE)
-    cv2.setMouseCallback("Select corners", on_mouse)
-
-    while True:
-        cv2.imshow("Select corners", draw_state(frame, points))
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord("r"):
-            points.clear()
-        elif key == 13 and len(points) == 4:  # ENTER
-            break
-        elif key == ord("q"):
-            cv2.destroyAllWindows()
-            return None
-
-    cv2.destroyAllWindows()
-    return points  # in DISPLAY_SIZE coordinate space
+    if ids is None or len(ids) == 0:
+        print("No AprilTag detected — make sure it's flat, well-lit, and fully visible.")
+        return None
+    if len(ids) > 1:
+        print(f"Multiple tags detected ({len(ids)}); using the first one (id={ids[0][0]}).")
+    return corners[0][0]  # shape (4, 2): tl, tr, br, bl
 
 
 def main():
     data = np.load(CALIBRATION_PATH)
     K, dist = data["K"], data["dist"]
 
-    print("Place your reference rectangle flat in the scene.")
+    print("Place your AprilTag flat in the scene, at the exact plane you want to calibrate.")
     print("Press SPACE to freeze the frame when ready.")
-    frame = capture_frame(K, dist)
-    if frame is None:
-        return
 
-    print("\nClick the 4 corners of your rectangle in this order:")
-    print("  top-left -> top-right -> bottom-right -> bottom-left")
-    print("Press ENTER to confirm, 'r' to reset.")
-    points = select_corners(frame)
-    if points is None:
-        return
+    points = None
+    while points is None:
+        frame = capture_frame(K, dist)
+        if frame is None:
+            return
 
-    ref_w = round(REF_WIDTH_MM * PIXELS_PER_MM)
-    ref_h = round(REF_HEIGHT_MM * PIXELS_PER_MM)
-    pad   = round(PADDING_MM   * PIXELS_PER_MM)
+        tag_corners = detect_tag_corners(frame)
+        if tag_corners is None:
+            continue
 
-    # Place the reference rectangle at (pad, pad) inside a larger canvas.
-    # Everything within PADDING_MM of the rectangle is also visible.
+        cv2.namedWindow("Detected tag", cv2.WINDOW_AUTOSIZE)
+        cv2.imshow("Detected tag", draw_detection(frame, tag_corners))
+        key = cv2.waitKey(0) & 0xFF
+        cv2.destroyAllWindows()
+        if key == 13:  # ENTER
+            points = tag_corners
+
+    ref_w = round(TAG_SIZE_MM * PIXELS_PER_MM)
+    ref_h = round(TAG_SIZE_MM * PIXELS_PER_MM)
+    pad   = round(PADDING_MM  * PIXELS_PER_MM)
+
+    # Place the tag at (pad, pad) inside a larger canvas.
+    # Everything within PADDING_MM of the tag is also visible.
     dst = np.array([
         [pad,         pad        ],
         [pad + ref_w, pad        ],
