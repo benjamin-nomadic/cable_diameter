@@ -9,7 +9,7 @@ HOMOGRAPHY_PATH = "data/homography.npz"
 CATALOG_PATH = "data/acsr_catalog.csv"
 
 OUTPUT_DIR = os.path.join(
-    "..", "nomadic-app", "nomadic_app", "supabase", "functions", "_shared", "cableDiameter"
+    "..", "nomadic-app", "nomadic_app", "src", "containers", "sensors", "sensor", "tabs", "cableDiameter"
 )
 
 

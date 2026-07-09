@@ -1,6 +1,3 @@
 opencv-python
 numpy
 scipy
-fastapi
-uvicorn
-python-multipart
