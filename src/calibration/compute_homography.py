@@ -9,7 +9,7 @@ CALIBRATION_PATH = "data/calibration.npz"
 OUTPUT_PATH = "data/homography.npz"
 
 # ── Measure your printed AprilTag carefully with a ruler ─────────────────────
-TAG_SIZE_MM = 96.0   # side length of the black square of your printed tag (not the white border)
+TAG_SIZE_MM = 46.0   # side length of the black square of your printed tag (not the white border)
 APRILTAG_FAMILY = cv2.aruco.DICT_APRILTAG_36h11
 PIXELS_PER_MM = 10.0
 PADDING_MM = 150.0   # extra scene shown around the tag on every side

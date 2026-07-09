@@ -10,9 +10,17 @@ CALIBRATION_PATH = "data/calibration.npz"
 HOMOGRAPHY_PATH  = "data/homography.npz"
 DISPLAY_SIZE     = (3840, 2160)   # resolution the homography was computed in
 CAMERA_INDEX     = 4
-CROP_X           = (0.42, 0.58)    # horizontal slice of the BEV image to measure
-CROP_Y           = (0.4, 0.75)    # vertical slice of the BEV image to measure
+CROP_X           = (0.3, 0.7)    # horizontal slice of the BEV image to measure
+CROP_Y           = (0.25, 0.6)    # vertical slice of the BEV image to measure
 HEIGHT_MM        = 48           # set to camera height above cable plane in mm to enable geometric correction
+
+# ── Edge detection parameters (see edge_proposal.propose_test) ──────────────────
+EDGE_WEIGHTS           = (1.0, 0.5, 0.5)   # (L, a, b) channel weights
+EDGE_BLUR_SIGMA        = 7
+EDGE_SOBEL_KSIZE       = 3
+EDGE_THRESHOLD_PCT     = 50
+EDGE_MIN_LINE_SPAN_PCT = 20
+EDGE_MIN_SEP_MM        = 5
 
 
 def _capture_from_camera():
@@ -65,9 +73,17 @@ def main():
     roi = transform.apply(image, K, dist, H, bev_size, DISPLAY_SIZE, CROP_X, CROP_Y)
 
     # ── 3. Propose edges ──────────────────────────────────────────────────────
-    handles = edge_proposal.propose_headless(roi, pixels_per_mm)
+    handles = edge_proposal.propose_test(
+        roi, pixels_per_mm,
+        weights=EDGE_WEIGHTS,
+        blur_sigma=EDGE_BLUR_SIGMA,
+        sobel_ksize=EDGE_SOBEL_KSIZE,
+        threshold_pct=EDGE_THRESHOLD_PCT,
+        min_line_span_pct=EDGE_MIN_LINE_SPAN_PCT,
+        min_sep_mm=EDGE_MIN_SEP_MM,
+    )
     if handles is None:
-        print("Cancelled during edge proposal.")
+        print("No sensible edges detected — adjust the EDGE_* constants at the top of this file and try again.")
         return
 
     # ── 4. Manual refinement ──────────────────────────────────────────────────

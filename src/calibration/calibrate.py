@@ -4,12 +4,19 @@ import os
 import glob
 
 # ── Configure these to match your printed checkerboard ──────────────────────
-CHECKERBOARD = (9, 6)   # inner corners (width, height) — NOT the number of squares
-SQUARE_SIZE_MM = 16   # measure one square on your printout with a ruler
+CHECKERBOARD = (5, 3)   # inner corners (width, height) — NOT the number of squares
+SQUARE_SIZE_MM = 11.5   # measure one square on your printout with a ruler
 # ────────────────────────────────────────────────────────────────────────────
 
 IMAGE_DIR = "calibration_images"
 OUTPUT_PATH = "data/calibration.npz"
+
+# cv2.findChessboardCorners is unreliable on full-resolution (e.g. 4K) images — its
+# internal quad-detection heuristics assume comparatively small squares, and on our
+# images it only found the board in 2/20 cases at full size vs. 20/20 once downscaled.
+# So detection runs on a shrunk copy, then the found corners are scaled back up and
+# refined with cornerSubPix on the full-resolution image for accurate subpixel corners.
+DETECT_MAX_WIDTH = 600
 
 
 def build_object_points():
@@ -33,8 +40,12 @@ def detect_corners(images):
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         img_shape = gray.shape[::-1]  # (width, height)
 
-        found, corners = cv2.findChessboardCorners(gray, CHECKERBOARD, None)
+        scale = min(1.0, DETECT_MAX_WIDTH / gray.shape[1])
+        small = cv2.resize(gray, None, fx=scale, fy=scale) if scale < 1.0 else gray
+        found, corners = cv2.findChessboardCorners(small, CHECKERBOARD, None)
         if found:
+            if scale < 1.0:
+                corners /= scale
             corners = cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), criteria)
             obj_points.append(objp)
             img_points.append(corners)

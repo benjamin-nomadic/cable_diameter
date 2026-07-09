@@ -20,7 +20,7 @@ HEIGHT_MM = 48
 # shown as a candidate match. Several real ACSR conductors share near-identical outer
 # diameters despite being different sizes, so this intentionally returns a set of
 # plausible matches rather than forcing a single (possibly wrong) best guess.
-CLASSIFICATION_TOLERANCE_MM = 0.5
+CLASSIFICATION_TOLERANCE_MM = 1.0
 
 app = FastAPI()
 

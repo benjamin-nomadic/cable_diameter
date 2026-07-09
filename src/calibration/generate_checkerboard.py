@@ -2,7 +2,7 @@ import numpy as np
 import cv2
 
 # ── Configure ────────────────────────────────────────────────────────────────
-INNER_CORNERS = (9, 6)    # (cols, rows) of inner corners  →  10×7 squares
+INNER_CORNERS = (5, 3)    # (cols, rows) of inner corners  →  10×7 squares
 SQUARE_SIZE_MM = 25.0     # target square size in mm
 DPI = 300
 OUTPUT = "checkerboard_a4_landscape.png"
