@@ -13,8 +13,8 @@ import transform
 CALIBRATION_PATH = "data/calibration.npz"
 HOMOGRAPHY_PATH = "data/homography.npz"
 DISPLAY_SIZE = (3840, 2160)
-CROP_X = (0.4, 0.6)
-CROP_Y = (0.5, 0.77)
+CROP_X = (0.35, 0.65)
+CROP_Y = (0.25, 0.6)
 HEIGHT_MM = 48
 # How far (in mm) a catalog entry's diameter may be from the measurement to still be
 # shown as a candidate match. Several real ACSR conductors share near-identical outer
