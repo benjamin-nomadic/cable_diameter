@@ -3,7 +3,7 @@ import os
 
 CAMERA_INDEX = 4
 RESOLUTION = (3840, 2160)
-SAVE_DIR = "calibration_images"
+SAVE_DIR = "validation_images"
 
 
 def main():

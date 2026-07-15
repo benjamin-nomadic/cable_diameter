@@ -21,10 +21,12 @@ def export_calibration():
 def export_homography():
     hom = np.load(HOMOGRAPHY_PATH)
     return {
-        "H": hom["H"].tolist(),
+        "camera_position_mm": hom["camera_position_mm"].tolist(),
+        "camera_rotation_deg": hom["camera_rotation_deg"].tolist(),
         "output_w": int(hom["output_w"]),
         "output_h": int(hom["output_h"]),
         "pixels_per_mm": float(hom["pixels_per_mm"]),
+        "canvas_origin_px": hom["canvas_origin_px"].tolist(),
     }
 
 

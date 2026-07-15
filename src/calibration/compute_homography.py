@@ -128,6 +128,43 @@ def main():
     src = np.array(points, dtype=np.float32)
     H = cv2.getPerspectiveTransform(src, dst)
 
+    # --- Camera pose relative to the tag/measurement frame -----------------------------
+    # Independent of H above: same 4 corners, but solved as a full 3D pose (via the tag's
+    # known physical size) rather than a flat pixel-to-pixel warp. solvePnP returns the
+    # tag -> camera transform; invert it to get the camera's position/orientation expressed
+    # in the tag's own coordinate frame (origin at its top-left corner, X along its top
+    # edge, Y along its left edge).
+    tag_mm_3d = np.array([
+        [0, 0, 0],
+        [TAG_SIZE_MM, 0, 0],
+        [TAG_SIZE_MM, TAG_SIZE_MM, 0],
+        [0, TAG_SIZE_MM, 0],
+    ], dtype=np.float32)
+    # src's corners come from `frame`, which capture_frame() already ran through
+    # cv2.undistort(f, K, dist) - so no distortion remains to correct for here. Passing the
+    # real `dist` again would tell solvePnP to undistort already-undistorted points a second
+    # time, skewing the recovered pose.
+    ok, rvec, tvec = cv2.solvePnP(tag_mm_3d, src, K, None)
+    if not ok:
+        print("solvePnP failed - skipping pose computation.")
+        camera_position_mm = None
+        camera_rotation_deg = None
+    else:
+        R_tag_to_cam, _ = cv2.Rodrigues(rvec)
+        R_cam_in_tag = R_tag_to_cam.T
+        camera_position_mm = -R_cam_in_tag @ tvec.flatten()
+        # Euler angles (degrees) such that R_cam_in_tag = Rz(z) @ Ry(y) @ Rx(x) - verified
+        # against cv2.RQDecomp3x3's actual convention, not assumed.
+        camera_rotation_deg, *_ = cv2.RQDecomp3x3(R_cam_in_tag)
+        print(f"\nCamera position in tag frame (mm):   x={camera_position_mm[0]:.1f}  "
+              f"y={camera_position_mm[1]:.1f}  z={camera_position_mm[2]:.1f}")
+        print(f"Camera rotation in tag frame (deg):  x={camera_rotation_deg[0]:.2f}  "
+              f"y={camera_rotation_deg[1]:.2f}  z={camera_rotation_deg[2]:.2f}")
+        if camera_position_mm[2] > 0:
+            print("WARNING: camera_position_mm z is positive - expected negative given the "
+                  "tag frame's Z axis points away from the camera (see convention notes). "
+                  "Double-check the tag was detected right-side-up before trusting this.")
+
     flat = cv2.warpPerspective(frame, H, (full_w, full_h))
     cv2.namedWindow("BEV preview - press any key to save", cv2.WINDOW_NORMAL)
     cv2.resizeWindow("BEV preview - press any key to save", 800, round(800 * full_h / full_w))
@@ -135,9 +172,23 @@ def main():
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
+    if camera_position_mm is None:
+        print("Not saving - pose computation failed (see warning above).")
+        return
+
     os.makedirs("data", exist_ok=True)
-    np.savez(OUTPUT_PATH, H=H, output_w=np.int32(full_w), output_h=np.int32(full_h),
-             pixels_per_mm=np.float64(PIXELS_PER_MM))
+    # H itself is no longer saved - it's reconstructed at runtime from camera_position_mm/
+    # camera_rotation_deg (plus K/dist and this canvas layout), so the app can let camera
+    # position/orientation be adjusted directly instead of raw, unintuitive matrix entries.
+    np.savez(
+        OUTPUT_PATH,
+        camera_position_mm=camera_position_mm,
+        camera_rotation_deg=np.array(camera_rotation_deg),
+        output_w=np.int32(full_w),
+        output_h=np.int32(full_h),
+        pixels_per_mm=np.float64(PIXELS_PER_MM),
+        canvas_origin_px=np.array([pad, pad], dtype=np.float64),
+    )
     print(f"\nSaved to {OUTPUT_PATH}  ({full_w}x{full_h}px at {PIXELS_PER_MM}px/mm)")
 
 
